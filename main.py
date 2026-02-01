@@ -1,4 +1,4 @@
-  import os
+import os
 import asyncio
 import re
 import logging
@@ -117,9 +117,6 @@ def has_suit_in_group(group_str: str, target_suit: str) -> bool:
 
 def get_predicted_suit(missing_suit: str) -> str:
     """Applique le mapping personnalisé (couleur manquante -> couleur prédite)."""
-    # Ce mapping est maintenant l'inverse : ♠️<->♣️ et ♥️<->♦️
-    # Assurez-vous que SUIT_MAPPING dans config.py contient :
-    # SUIT_MAPPING = {'♠': '♣', '♣': '♠', '♥': '♦', '♦': '♥'}
     return SUIT_MAPPING.get(missing_suit, missing_suit)
 
 # --- Logique de Prédiction et File d'Attente ---
@@ -130,7 +127,7 @@ async def send_prediction_to_channel(target_game: int, predicted_suit: str, base
         # Si c'est un rattrapage, on ne crée pas un nouveau message, on garde la trace
         if rattrapage > 0:
             pending_predictions[target_game] = {
-                'message_id': 0, # Pas de message pour le rattrapage lui-même
+                'message_id': 0,
                 'suit': predicted_suit,
                 'base_game': base_game,
                 'status': '🔮',
@@ -221,6 +218,7 @@ async def update_prediction_status(game_number: int, new_status: str):
         message_id = pred['message_id']
         suit = pred['suit']
 
+        # NOUVEAU FORMAT DE MESSAGE
         updated_msg = f"""🎮 joueur №{game_number}
 ⚜️ Couleur de la carte:{SUIT_DISPLAY.get(suit, suit)}
 🎰 Poursuite deux jeux(🔰+3)
@@ -277,6 +275,8 @@ async def update_prediction_status(game_number: int, new_status: str):
                     logger.info(f"{suit} bloqué jusqu'à {block_until}")
                 
                 # CAS 2 : Si 3 succès consécutifs (tous ✅)
+                # Cette vérification est maintenant faite AVANT la prédiction, donc on ne devrait plus jamais passer ici
+                # Mais on la garde comme sécurité
                 elif all('✅' in result for result in suit_results_history[suit]):
                     logger.info(f"3 succès consécutifs pour {suit} → Blocage 5 minutes")
                     block_until = datetime.now() + timedelta(minutes=5)
@@ -614,6 +614,7 @@ async def start_web_server():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', PORT)
     await site.start() 
+    logger.info(f"✅ Serveur web démarré sur le port {PORT}")
 
 async def schedule_daily_reset():
     """Tâche planifiée pour la réinitialisation quotidienne des stocks de prédiction à 00h59 WAT."""
@@ -669,8 +670,10 @@ async def start_bot():
 async def main():
     """Fonction principale pour lancer le serveur web, le bot et la tâche de reset."""
     try:
+        # Démarrer le serveur web en premier pour que Render détecte le port ouvert
         await start_web_server()
 
+        # Démarrer le bot Telegram
         success = await start_bot()
         if not success:
             logger.error("Échec du démarrage du bot")
@@ -680,6 +683,7 @@ async def main():
         asyncio.create_task(schedule_daily_reset())
         
         logger.info("Bot complètement opérationnel - En attente de messages...")
+        # Cette ligne bloque, mais le serveur web tourne en parallèle
         await client.run_until_disconnected()
 
     except Exception as e:
@@ -690,8 +694,10 @@ async def main():
         if client.is_connected():
             await client.disconnect()
 
+# --- Point d'entrée principal ---
 if __name__ == '__main__':
     try:
+        # Démarrer l'événement loop
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot arrêté par l'utilisateur")
@@ -699,4 +705,3 @@ if __name__ == '__main__':
         logger.error(f"Erreur fatale: {e}")
         import traceback
         logger.error(traceback.format_exc())
- 
