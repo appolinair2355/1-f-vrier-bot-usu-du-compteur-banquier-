@@ -15,10 +15,10 @@ def parse_channel_id(env_var: str, default: str) -> int:
 SOURCE_CHANNEL_ID = parse_channel_id('SOURCE_CHANNEL_ID', '-1002682552255')
 
 # ID du canal source 2 (Statistiques)
-SOURCE_CHANNEL_2_ID = parse_channel_id('SOURCE_CHANNEL_2_ID', '-1002674389383')
+SOURCE_CHANNEL_2_ID = parse_channel_id('SOURCE_CHANNEL_2_ID', '-1003216148681)
 
 # NOUVEL ID DU CANAL DE PRÉDICTION
-PREDICTION_CHANNEL_ID = parse_channel_id('PREDICTION_CHANNEL_ID', '-1002887687164')
+PREDICTION_CHANNEL_ID = parse_channel_id('PREDICTION_CHANNEL_ID', '-1003554569009)
 
 ADMIN_ID = int(os.getenv('ADMIN_ID') or '0')
 
