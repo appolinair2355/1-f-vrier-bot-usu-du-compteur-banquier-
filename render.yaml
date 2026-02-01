@@ -1,4 +1,3 @@
-
 services:
   - type: web
     name: telegram-prediction-bot
@@ -10,8 +9,12 @@ services:
     envVars:
       - key: PORT
         value: 10000
+      - key: SOURCE_CHANNEL_ID
+        value: -1002682552255
       - key: SOURCE_CHANNEL_2_ID
-        value: -1002674389383
+        value: -1003216148681
+      - key: PREDICTION_CHANNEL_ID
+        value: -1003554569009
       - key: API_ID
         sync: false
       - key: API_HASH
@@ -20,9 +23,6 @@ services:
         sync: false
       - key: ADMIN_ID
         sync: false
-      - key: SOURCE_CHANNEL_ID
-        value: -1002682552255
-      - key: PREDICTION_CHANNEL_ID
-        value: -1002887687164
       - key: TELEGRAM_SESSION
         sync: false
+        
