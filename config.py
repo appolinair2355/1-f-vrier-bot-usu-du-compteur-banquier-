@@ -1,42 +1,44 @@
-"""
-Configuration du bot Telegram de prédiction Baccarat
-"""
-import os
+# =========================================
+# Configuration du bot Telegram de prédiction Baccarat
+# ⚠️ ATTENTION : Secrets en dur - Ne pas committer dans un dépôt public
+# =========================================
 
-def parse_channel_id(env_var: str, default: str) -> int:
-    value = os.getenv(env_var) or default
-    channel_id = int(value)
-    # Convertit l'ID positif en format ID de canal Telegram négatif si nécessaire
-    if channel_id > 0 and len(str(channel_id)) >= 10:
-        channel_id = -channel_id
-    return channel_id
+# === CREDENTIALS TELEGRAM (secrets) ===
+API_ID = 29177661
+API_HASH = "a8639172fa8d35dbfd8ea46286d349ab"
+BOT_TOKEN = "7663403310:AAHEmW-FzB1hvV9_FXTJxcdGt_hjrc3dJSk"
+ADMIN_ID = 1190237801
 
-# ID du canal source (inchangé)
-SOURCE_CHANNEL_ID = parse_channel_id('SOURCE_CHANNEL_ID', '-1002682552255')
+# === MODE DEPLOIEMENT ===
+RENDER_DEPLOYMENT = True  # Passer à True pour Render.com
 
-# ID du canal source 2 (Statistiques)
-SOURCE_CHANNEL_2_ID = parse_channel_id('SOURCE_CHANNEL_2_ID', '-1003216148681')
+# === IDs DES CANAUX TELEGRAM ===
+# Source 1 : Canal principal avec les résultats
+SOURCE_CHANNEL_ID = -1002682552255
 
-# NOUVEL ID DU CANAL DE PRÉDICTION
-PREDICTION_CHANNEL_ID = parse_channel_id('PREDICTION_CHANNEL_ID', '-1003554569009')
+# Source 2 : Canal des statistiques
+SOURCE_CHANNEL_2_ID = -1003216148681
 
-ADMIN_ID = int(os.getenv('ADMIN_ID') or '0')
+# Canal où envoyer les prédictions
+PREDICTION_CHANNEL_ID = -1003554569009
 
-API_ID = int(os.getenv('API_ID') or '0')
-API_HASH = os.getenv('API_HASH') or ''
-BOT_TOKEN = os.getenv('BOT_TOKEN') or ''
+# === CONFIGURATION SERVEUR ===
+# Port pour Render.com (obligatoire)
+PORT = 10000
 
-PORT = int(os.getenv('PORT') or '10000')  # Port 10000 for Render.com
-
-# NOUVEAU MAPPING : Miroirs selon les instructions utilisateur
+# === LOGIQUE DE PREDICTION ===
+# Mapping des costumes miroirs : ♦️<->♠️ et ❤️<->♣️
 SUIT_MAPPING = {
-    '♦': '♠',  # Miroir Carreau <-> Pique
+    '♦': '♠',  # Carreau ↔ Pique
     '♠': '♦',
-    '♥': '♣',  # Miroir Cœur <-> Trèfle
+    '♥': '♣',  # Cœur ↔ Trèfle
     '♣': '♥',
 }
 
+# Liste de tous les costumes
 ALL_SUITS = ['♠', '♥', '♦', '♣']
+
+# Affichage des emojis pour les messages
 SUIT_DISPLAY = {
     '♠': '♠️',
     '♥': '❤️',
