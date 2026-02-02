@@ -1,30 +1,28 @@
+import os
+
 # =========================================
 # Configuration du bot Telegram de prédiction Baccarat
-# ⚠️ ATTENTION : Secrets en dur - Ne pas committer dans un dépôt public
 # =========================================
 
-# === CREDENTIALS TELEGRAM (secrets) ===
-API_ID = 29177661
-API_HASH = "a8639172fa8d35dbfd8ea46286d349ab"
-BOT_TOKEN = "7663403310:AAHEmW-FzB1hvV9_FXTJxcdGt_hjrc3dJSk"
-ADMIN_ID = 1190237801
-
-# === MODE DEPLOIEMENT ===
-RENDER_DEPLOYMENT = True  # Passer à True pour Render.com
+# === CREDENTIALS TELEGRAM (from environment variables) ===
+API_ID = int(os.getenv('API_ID', '0'))
+API_HASH = os.getenv('API_HASH', '')
+BOT_TOKEN = os.getenv('BOT_TOKEN', '')
+ADMIN_ID = int(os.getenv('ADMIN_ID', '0'))
 
 # === IDs DES CANAUX TELEGRAM ===
 # Source 1 : Canal principal avec les résultats
-SOURCE_CHANNEL_ID = -1002682552255
+SOURCE_CHANNEL_ID = int(os.getenv('SOURCE_CHANNEL_ID', '-1002682552255'))
 
 # Source 2 : Canal des statistiques
-SOURCE_CHANNEL_2_ID = -1003216148681
+SOURCE_CHANNEL_2_ID = int(os.getenv('SOURCE_CHANNEL_2_ID', '-1003309666471'))
 
 # Canal où envoyer les prédictions
-PREDICTION_CHANNEL_ID = -1003554569009
+PREDICTION_CHANNEL_ID = int(os.getenv('PREDICTION_CHANNEL_ID', '-1003554569009'))
 
 # === CONFIGURATION SERVEUR ===
-# Port pour Render.com (obligatoire)
-PORT = 10000
+# Port for the web server
+PORT = int(os.getenv('PORT', '5000'))
 
 # === LOGIQUE DE PREDICTION ===
 # Mapping des costumes miroirs : ♦️<->♠️ et ❤️<->♣️

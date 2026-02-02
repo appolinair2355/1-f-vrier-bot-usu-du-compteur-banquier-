@@ -69,16 +69,27 @@ def extract_game_number(message: str):
 
 def parse_stats_message(message: str):
     stats = {}
-    patterns = {
-        '♠': r'♠️?\s*:\s*(\d+)',
-        '♥': r'♥️?\s*:\s*(\d+)',
-        '♦': r'♦️?\s*:\s*(\d+)',
-        '♣': r'♣️?\s*:\s*(\d+)'
-    }
-    for suit, pattern in patterns.items():
-        match = re.search(pattern, message)
+    # Normalisation complète pour uniformiser les émojis
+    text = message.replace('♠️', '♠').replace('♥️', '♥').replace('♦️', '♦').replace('♣️', '♣')
+    text = text.replace('❤️', '♥').replace('❤', '♥')
+    
+    # Stratégie de secours : chercher le premier nombre qui suit chaque symbole
+    # même s'il y a beaucoup de texte entre les deux (ex: dans un tableau)
+    for suit in ['♠', '♥', '♦', '♣']:
+        # On cherche le symbole, puis on scanne jusqu'au premier chiffre
+        # re.S permet à '.' de matcher les retours à la ligne
+        pattern = rf'{suit}.*?(\d+)'
+        match = re.search(pattern, text, re.S)
         if match:
             stats[suit] = int(match.group(1))
+            
+    if stats and len(stats) == 4:
+        logger.info(f"✅ Stats extraites avec succès: {stats}")
+    elif stats:
+        logger.warning(f"⚠️ Stats incomplètes: {stats}")
+    else:
+        logger.warning(f"❌ Échec total d'extraction. Message reçu: {text[:200]}...")
+        
     return stats
 
 def extract_parentheses_groups(message: str):
@@ -122,9 +133,9 @@ async def send_prediction_to_channel(target_game: int, predicted_suit: str, base
 
         # NOUVEAU FORMAT
         prediction_msg = f"""🎮 joueur №{target_game}
-⚜️ Couleur de la carte:{SUIT_DISPLAY.get(predicted_suit, predicted_suit)}
-🎰 Poursuite deux jeux(🔰+3)
-🗯️ Résultats :⏳"""
+   125→⚜️ Couleur de la carte:{SUIT_DISPLAY.get(predicted_suit, predicted_suit)}
+   126→🎰 Poursuite deux jeux(🔰+3)
+   127→🗯️ Résultats :⏳"""
         msg_id = 0
 
         if PREDICTION_CHANNEL_ID and PREDICTION_CHANNEL_ID != 0 and prediction_channel_ok:
@@ -303,10 +314,13 @@ async def check_prediction_result(game_number: int, second_group: str):
 async def process_stats_message(message_text: str):
     global last_source_game_number, last_predicted_suit, suit_consecutive_counts, suit_block_until
     
+    logger.info(f"Analyse message stats: {message_text[:100]}...")
     stats = parse_stats_message(message_text)
     if not stats:
+        logger.warning("Aucune statistique extraite du message")
         return
 
+    # Miroirs: ♦<->♠ et ♥<->♣
     pairs = [('♦', '♠'), ('♥', '♣')]
     
     for s1, s2 in pairs:
@@ -316,43 +330,33 @@ async def process_stats_message(message_text: str):
             
             if diff >= 10:
                 predicted_suit = s1 if v1 < v2 else s2
+                logger.info(f"Détection Pattern: {s1}({v1}) vs {s2}({v2}) | Diff={diff} | Prédit={predicted_suit}")
                 
                 # Vérifier blocage actif
                 if predicted_suit in suit_block_until:
                     if datetime.now() < suit_block_until[predicted_suit]:
-                        logger.info(f"{predicted_suit} bloqué, ignoré")
-                        return False
+                        logger.info(f"{predicted_suit} bloqué jusqu'à {suit_block_until[predicted_suit]}, ignoré")
+                        continue
                     else:
                         del suit_block_until[predicted_suit]
                         suit_consecutive_counts[predicted_suit] = 0
                         suit_results_history[predicted_suit] = []
                 
-                # Vérifier 3 succès consécutifs
-                if predicted_suit in suit_results_history and len(suit_results_history[predicted_suit]) == 3:
-                    if '❌' not in suit_results_history[predicted_suit]:
-                        logger.info(f"3 succès pour {predicted_suit}, blocage 5min")
-                        suit_block_until[predicted_suit] = datetime.now() + timedelta(minutes=5)
-                        suit_consecutive_counts[predicted_suit] = 0
-                        suit_results_history[predicted_suit] = []
-                        return False
-                
-                # Réinitialiser si changement de costume
+                # Réinitialiser si changement de cible
                 if last_predicted_suit and last_predicted_suit != predicted_suit:
                     suit_consecutive_counts[last_predicted_suit] = 0
                     suit_results_history[last_predicted_suit] = []
-                    logger.info(f"Changement: {last_predicted_suit} -> {predicted_suit}")
-                
-                logger.info(f"Décalage {s1}({v1}) vs {s2}({v2}): {diff}. Plus faible: {predicted_suit}")
+                    logger.info(f"Changement de cible: {last_predicted_suit} -> {predicted_suit}")
                 
                 if last_source_game_number > 0:
                     target_game = last_source_game_number + USER_A
-                    
                     if queue_prediction(target_game, predicted_suit, last_source_game_number):
                         suit_consecutive_counts[predicted_suit] = suit_consecutive_counts.get(predicted_suit, 0) + 1
                         last_predicted_suit = predicted_suit
-                        logger.info(f"Compteur {predicted_suit}: {suit_consecutive_counts[predicted_suit]}")
-                    
+                        logger.info(f"✅ Prédiction #{target_game} planifiée pour {predicted_suit}")
                     return
+                else:
+                    logger.warning("Impossible de prédire : Numéro de jeu source inconnu")
 
 def is_message_finalized(message: str) -> bool:
     if '⏰' in message:
@@ -408,8 +412,6 @@ async def handle_message(event):
         if chat_id == SOURCE_CHANNEL_ID or chat_id == SOURCE_CHANNEL_2_ID:
             message_text = event.message.message
             await process_finalized_message(message_text, chat_id)
-            if chat_id == SOURCE_CHANNEL_2_ID:
-                await check_and_send_queued_predictions(current_game_number)
             
         if sender_id == ADMIN_ID:
             if event.message.message.startswith('/'):
@@ -429,8 +431,6 @@ async def handle_edited_message(event):
         if chat_id == SOURCE_CHANNEL_ID or chat_id == SOURCE_CHANNEL_2_ID:
             message_text = event.message.message
             await process_finalized_message(message_text, chat_id)
-            if chat_id == SOURCE_CHANNEL_2_ID:
-                await check_and_send_queued_predictions(current_game_number)
 
     except Exception as e:
         logger.error(f"Erreur handle_edited_message: {e}")
@@ -578,15 +578,30 @@ async def schedule_daily_reset():
 
 async def start_bot():
     global source_channel_ok, prediction_channel_ok
-    try:
-        await client.start(bot_token=BOT_TOKEN)
-        source_channel_ok = True
-        prediction_channel_ok = True 
-        logger.info("Bot connecté et canaux accessibles.")
-        return True
-    except Exception as e:
-        logger.error(f"Erreur démarrage du bot: {e}")
-        return False
+    while True:
+        try:
+            await client.start(bot_token=BOT_TOKEN)
+            source_channel_ok = True
+            prediction_channel_ok = True 
+            logger.info("Bot connecté et canaux accessibles.")
+            
+            if PREDICTION_CHANNEL_ID:
+                try:
+                    await client.send_message(PREDICTION_CHANNEL_ID, "✅ Bot de prédiction opérationnel. En attente de statistiques...")
+                    logger.info("Message de test envoyé au canal de prédiction.")
+                except Exception as e:
+                    logger.error(f"Erreur envoi message de test: {e}")
+                    
+            return True
+        except Exception as e:
+            if "A wait of" in str(e):
+                import re
+                seconds = int(re.search(r"(\d+) seconds", str(e)).group(1))
+                logger.warning(f"🚨 FloodWait: Attente de {seconds} secondes...")
+                await asyncio.sleep(seconds + 5)
+            else:
+                logger.error(f"Erreur démarrage du bot: {e}")
+                return False
 
 async def main():
     try:
