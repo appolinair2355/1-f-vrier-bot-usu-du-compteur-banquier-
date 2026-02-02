@@ -51,11 +51,12 @@ last_transferred_game = None
 current_game_number = 0
 last_source_game_number = 0
 
-# NOUVELLES VARIABLES POUR LA LOGIQUE DE BLOCAGE
-suit_consecutive_counts = {}  # Compteur de prédictions consécutives par costume
-suit_results_history = {}     # Historique des 3 derniers résultats par costume
-suit_block_until = {}         # Timestamp de fin de blocage pour chaque costume
-last_predicted_suit = None    # Dernier costume prédit (pour détecter les changements)
+# NOUVELLES VARIABLES POUR LA LOGIQUE DE BLOCAGE (MAX 3 PRÉDICTIONS CONSÉCUTIVES)
+suit_consecutive_counts = {}      # Compteur de prédictions consécutives par costume
+suit_results_history = {}         # Historique des 3 derniers résultats par costume
+suit_block_until = {}             # Timestamp de fin de blocage pour chaque costume (30min)
+last_predicted_suit = None        # Dernier costume prédit (pour détecter les changements)
+suit_first_prediction_time = {}   # Timestamp de la première prédiction consécutive (pour les 30min)
 
 MAX_PENDING_PREDICTIONS = 5  # Augmenté pour gérer les rattrapages
 PROXIMITY_THRESHOLD = 3      # Nombre de jeux avant l'envoi depuis la file d'attente
@@ -337,6 +338,106 @@ async def check_prediction_result(game_number: int, second_group: str):
                     logger.info(f"Échec final pour la prédiction originale #{original_game} après 3 rattrapages")
                 return
 
+def can_predict_suit(predicted_suit: str) -> tuple[bool, str]:
+    """
+    Vérifie si un costume peut être prédit selon la règle des 3 consécutives.
+    
+    Règles:
+    - Maximum 3 prédictions consécutives du même costume
+    - Après 3 prédictions, le costume est bloqué jusqu'à:
+      1. Un autre costume soit prédit (changement de costume)
+      2. OU après 30 minutes d'attente
+    
+    Returns:
+        (bool, str): (peut prédire, raison si bloqué)
+    """
+    global suit_consecutive_counts, suit_block_until, last_predicted_suit, suit_first_prediction_time
+    
+    now = datetime.now()
+    
+    # Si c'est un nouveau costume différent du dernier prédit
+    if last_predicted_suit and last_predicted_suit != predicted_suit:
+        # Réinitialiser le compteur et le blocage du dernier costume
+        if last_predicted_suit in suit_consecutive_counts:
+            logger.info(f"Changement de costume: {last_predicted_suit} -> {predicted_suit}. Réinitialisation des compteurs.")
+            suit_consecutive_counts[last_predicted_suit] = 0
+            if last_predicted_suit in suit_block_until:
+                del suit_block_until[last_predicted_suit]
+            if last_predicted_suit in suit_first_prediction_time:
+                del suit_first_prediction_time[last_predicted_suit]
+        # Réinitialiser aussi le compteur du nouveau costume (car c'est un changement)
+        suit_consecutive_counts[predicted_suit] = 0
+        if predicted_suit in suit_block_until:
+            del suit_block_until[predicted_suit]
+        if predicted_suit in suit_first_prediction_time:
+            del suit_first_prediction_time[predicted_suit]
+        return True, ""
+    
+    # Vérifier si le costume est actuellement bloqué
+    if predicted_suit in suit_block_until:
+        block_until = suit_block_until[predicted_suit]
+        if now < block_until:
+            remaining = block_until - now
+            logger.info(f"{predicted_suit} est bloqué. Temps restant: {remaining.seconds//60}min {remaining.seconds%60}s")
+            return False, f"{predicted_suit} bloqué pendant encore {remaining.seconds//60}min"
+        else:
+            # Le blocage de 30min est terminé, on peut prédire
+            logger.info(f"Blocage de 30min terminé pour {predicted_suit}. Prédiction autorisée.")
+            del suit_block_until[predicted_suit]
+            # Réinitialiser le compteur mais garder trace du temps pour les futures vérifications
+            suit_consecutive_counts[predicted_suit] = 1
+            suit_first_prediction_time[predicted_suit] = now
+            return True, ""
+    
+    # Vérifier le compteur de prédictions consécutives
+    current_count = suit_consecutive_counts.get(predicted_suit, 0)
+    
+    if current_count >= 3:
+        # Le costume a déjà été prédit 3 fois consécutivement
+        # Vérifier si les 30 minutes sont écoulées depuis la première prédiction
+        if predicted_suit in suit_first_prediction_time:
+            first_time = suit_first_prediction_time[predicted_suit]
+            elapsed = now - first_time
+            if elapsed >= timedelta(minutes=30):
+                # 30 minutes écoulées, on peut prédire à nouveau
+                logger.info(f"30 minutes écoulées pour {predicted_suit}. Réinitialisation et prédiction autorisée.")
+                suit_consecutive_counts[predicted_suit] = 1
+                suit_first_prediction_time[predicted_suit] = now
+                return True, ""
+            else:
+                # Pas encore 30 minutes, bloquer
+                remaining = timedelta(minutes=30) - elapsed
+                # Mettre à jour le timestamp de blocage
+                suit_block_until[predicted_suit] = first_time + timedelta(minutes=30)
+                logger.info(f"{predicted_suit} a atteint 3 prédictions. Bloqué encore {remaining.seconds//60}min")
+                return False, f"{predicted_suit} en pause ({remaining.seconds//60}min restantes)"
+        else:
+            # Pas de timestamp enregistré, bloquer par précaution
+            suit_block_until[predicted_suit] = now + timedelta(minutes=30)
+            suit_first_prediction_time[predicted_suit] = now
+            logger.info(f"{predicted_suit} bloqué pour 30min (3 prédictions consécutives)")
+            return False, f"{predicted_suit} bloqué 30min (3 prédictions)"
+    
+    # Le costume peut être prédit
+    return True, ""
+
+def increment_suit_counter(predicted_suit: str):
+    """Incrémente le compteur de prédictions consécutives pour un costume."""
+    global suit_consecutive_counts, suit_first_prediction_time, last_predicted_suit
+    
+    now = datetime.now()
+    
+    # Si c'est la première prédiction de ce costume ou si on revient après un changement
+    if predicted_suit not in suit_consecutive_counts or suit_consecutive_counts.get(predicted_suit, 0) == 0:
+        suit_first_prediction_time[predicted_suit] = now
+        suit_consecutive_counts[predicted_suit] = 1
+    else:
+        suit_consecutive_counts[predicted_suit] += 1
+    
+    last_predicted_suit = predicted_suit
+    
+    logger.info(f"Compteur {predicted_suit}: {suit_consecutive_counts[predicted_suit]}/3 consécutives")
+
 async def process_stats_message(message_text: str):
     """Traite les statistiques du canal 2 selon les miroirs ♦️<->♠️ et ❤️<->♣️."""
     global last_source_game_number, last_predicted_suit, suit_consecutive_counts, suit_block_until
@@ -345,7 +446,7 @@ async def process_stats_message(message_text: str):
     if not stats:
         return
 
-    # Miroirs : ♦️<->♠️ et ❥️<->♣️
+    # Miroirs : ♦️<->♠️ et ❤️<->♣️
     pairs = [('♦', '♠'), ('♥', '♣')]
     
     for s1, s2 in pairs:
@@ -358,22 +459,14 @@ async def process_stats_message(message_text: str):
                 # Prédire le plus faible parmi les deux miroirs
                 predicted_suit = s1 if v1 < v2 else s2
                 
-                # --- NOUVELLE LOGIQUE DE BLOCAGE ---
+                # --- NOUVELLE LOGIQUE DE BLOCAGE (MAX 3 CONSÉCUTIVES) ---
                 
-                # Vérifier si ce costume est bloqué
-                if predicted_suit in suit_block_until:
-                    block_until = suit_block_until[predicted_suit]
-                    if datetime.now() < block_until:
-                        logger.info(f"{predicted_suit} est bloqué jusqu'à {block_until}, prédiction ignorée")
-                        return False
-                    else:
-                        # Blocage expiré, nettoyer
-                        del suit_block_until[predicted_suit]
-                        suit_consecutive_counts[predicted_suit] = 0
+                # Vérifier si ce costume peut être prédit
+                can_predict, reason = can_predict_suit(predicted_suit)
                 
-                # Réinitialiser le compteur si changement de costume
-                if last_predicted_suit and last_predicted_suit != predicted_suit:
-                    suit_consecutive_counts[last_predicted_suit] = 0
+                if not can_predict:
+                    logger.info(f"🚫 Prédiction refusée pour {predicted_suit}: {reason}")
+                    return False
                 
                 logger.info(f"Décalage détecté entre {s1} ({v1}) et {s2} ({v2}): {diff}. Plus faible: {predicted_suit}")
                 
@@ -382,9 +475,7 @@ async def process_stats_message(message_text: str):
                     
                     # Mettre en file d'attente et incrémenter le compteur
                     if queue_prediction(target_game, predicted_suit, last_source_game_number):
-                        suit_consecutive_counts[predicted_suit] = suit_consecutive_counts.get(predicted_suit, 0) + 1
-                        last_predicted_suit = predicted_suit
-                        logger.info(f"Compteur {predicted_suit}: {suit_consecutive_counts[predicted_suit]}")
+                        increment_suit_counter(predicted_suit)
                     
                     return # Une seule prédiction par message de stats
 
@@ -532,13 +623,20 @@ async def cmd_status(event):
     status_msg += f"🎮 Jeu actuel (Source 1): #{current_game_number}\n"
     status_msg += f"🔢 Paramètre 'a': {USER_A}\n\n"
     
+    # Afficher les compteurs de prédictions consécutives
+    if suit_consecutive_counts:
+        status_msg += f"**📈 Compteurs de prédictions:**\n"
+        for suit, count in suit_consecutive_counts.items():
+            blocked = "🔒" if suit in suit_block_until and datetime.now() < suit_block_until.get(suit, datetime.min) else ""
+            status_msg += f"• {suit}: {count}/3 {blocked}\n"
+    
     # Afficher les blocages actifs
     if suit_block_until:
-        status_msg += f"**🔒 Blocages actifs:**\n"
+        status_msg += f"\n**🔒 Blocages actifs:**\n"
         for suit, block_time in suit_block_until.items():
             if datetime.now() < block_time:
                 remaining = block_time - datetime.now()
-                status_msg += f"• {suit}: {remaining.seconds}s restantes\n"
+                status_msg += f"• {suit}: {remaining.seconds//60}min {remaining.seconds%60}s restantes\n"
     
     if pending_predictions:
         status_msg += f"\n**🔮 Actives ({len(pending_predictions)}):**\n"
@@ -546,7 +644,7 @@ async def cmd_status(event):
             distance = game_num - current_game_number
             ratt = f" (R{pred['rattrapage']})" if pred.get('rattrapage', 0) > 0 else ""
             status_msg += f"• #{game_num}{ratt}: {pred['suit']} - {pred['status']} (dans {distance})\n"
-    else: status_msg += "**🔮 Aucune prédiction active**\n"
+    else: status_msg += "\n**🔮 Aucune prédiction active**\n"
 
     await event.respond(status_msg)
 
@@ -561,10 +659,10 @@ async def cmd_help(event):
    - Prédit la carte en avance.
    - Cible le jeu : **Dernier numéro Source 1 + a**.
 3. **Rattrapages :** Si la carte ne sort pas au jeu cible, le bot retente sur les **3 jeux suivants** (3 rattrapages).
-4. **Blocage :** 3 prédictions consécutives du même costume:
-   - Si ❌ détecté → Re-lance immédiatement puis bloque 5min
-   - Si 3 succès → Bloque 5min
-   - Si changement de costume → Réinitialise le compteur
+4. **Blocage (MAX 3) :** Maximum 3 prédictions consécutives du même costume:
+   - Après 3 prédictions du même costume → Bloqué jusqu'à changement de costume OU 30min
+   - Si changement de costume détecté → Réinitialise le compteur
+   - Si 30min écoulées → Peut prédire à nouveau
 
 **Commandes :**
 - `/status` : Affiche l'état actuel.
@@ -614,7 +712,7 @@ async def schedule_daily_reset():
         logger.warning("🚨 RESET QUOTIDIEN À 00h59 WAT DÉCLENCHÉ!")
         
         global pending_predictions, queued_predictions, recent_games, processed_messages, last_transferred_game, current_game_number, last_source_game_number
-        global suit_consecutive_counts, suit_results_history, suit_block_until, last_predicted_suit
+        global suit_consecutive_counts, suit_results_history, suit_block_until, last_predicted_suit, suit_first_prediction_time
 
         pending_predictions.clear()
         queued_predictions.clear()
@@ -623,6 +721,7 @@ async def schedule_daily_reset():
         suit_consecutive_counts.clear()
         suit_results_history.clear()
         suit_block_until.clear()
+        suit_first_prediction_time.clear()
         last_transferred_game = None
         current_game_number = 0
         last_source_game_number = 0
