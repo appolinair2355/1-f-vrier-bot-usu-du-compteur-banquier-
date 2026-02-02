@@ -143,8 +143,8 @@ async def send_prediction_to_channel(target_game: int, predicted_suit: str, base
             return 0
 
         # NOUVEAU FORMAT DE MESSAGE DE PRÉDICTION
-        prediction_msg = f"""🎮 joueur №{target_game}
-⚜️ Couleur de la carte:{SUIT_DISPLAY.get(predicted_suit, predicted_suit)}
+        prediction_msg = f"""🎮 banquier №{target_game}
+⚜️ Couleur de la carte:{predicted_suit}
 🎰 Poursuite deux jeux(🔰+3)
 🗯️ Résultats :⏳"""
         msg_id = 0
@@ -223,8 +223,8 @@ async def update_prediction_status(game_number: int, new_status: str):
         suit = pred['suit']
 
         # NOUVEAU FORMAT DE MISE À JOUR DU MESSAGE
-        updated_msg = f"""🎮 joueur №{game_number}
-⚜️ Couleur de la carte:{SUIT_DISPLAY.get(suit, suit)}
+        updated_msg = f"""🎮 banquier №{game_number}
+⚜️ Couleur de la carte:{suit}
 🎰 Poursuite deux jeux(🔰+3)
 🗯️ Résultats :{new_status}"""
 
