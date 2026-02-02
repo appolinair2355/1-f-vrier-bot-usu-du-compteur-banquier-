@@ -107,7 +107,7 @@ def get_suits_in_group(group_str: str):
     return [s for s in ALL_SUITS if s in normalized]
 
 def has_suit_in_group(group_str: str, target_suit: str) -> bool:
-    """Vérifie si la couleur cible est présente dans le premier groupe du résultat."""
+    """Vérifie si la couleur cible est présente dans le groupe de résultat."""
     normalized = normalize_suits(group_str)
     target_normalized = normalize_suits(target_suit)
     for suit in ALL_SUITS:
@@ -141,10 +141,11 @@ async def send_prediction_to_channel(target_game: int, predicted_suit: str, base
             logger.info(f"Rattrapage {rattrapage} actif pour #{target_game} (Original #{original_game})")
             return 0
 
-        prediction_msg = f"""🌤️ Игра № {target_game}
-🔹 Масть Игроку {SUIT_DISPLAY.get(predicted_suit, predicted_suit)}
-🤖Statut :⌛
-💧 Догон 2 Игры!! (🔰+3 Риск)"""
+        # NOUVEAU FORMAT DE MESSAGE DE PRÉDICTION
+        prediction_msg = f"""🎮 joueur №{target_game}
+⚜️ Couleur de la carte:{SUIT_DISPLAY.get(predicted_suit, predicted_suit)}
+🎰 Poursuite deux jeux(🔰+3)
+🗯️ Résultats :⏳"""
         msg_id = 0
 
         if PREDICTION_CHANNEL_ID and PREDICTION_CHANNEL_ID != 0 and prediction_channel_ok:
@@ -220,10 +221,11 @@ async def update_prediction_status(game_number: int, new_status: str):
         message_id = pred['message_id']
         suit = pred['suit']
 
-        updated_msg = f"""🌤️ Игра № {game_number}
-🔹 Масть Игроку {SUIT_DISPLAY.get(suit, suit)}
-🤖Statut :{new_status}
-💧 Догон 2 Игры!! (🔰+3 Риск)"""
+        # NOUVEAU FORMAT DE MISE À JOUR DU MESSAGE
+        updated_msg = f"""🎮 joueur №{game_number}
+⚜️ Couleur de la carte:{SUIT_DISPLAY.get(suit, suit)}
+🎰 Poursuite deux jeux(🔰+3)
+🗯️ Résultats :{new_status}"""
 
         if PREDICTION_CHANNEL_ID and PREDICTION_CHANNEL_ID != 0 and message_id > 0 and prediction_channel_ok:
             try:
@@ -284,14 +286,15 @@ async def update_prediction_status(game_number: int, new_status: str):
         logger.error(f"Erreur update_status: {e}")
         return False
 
-async def check_prediction_result(game_number: int, first_group: str):
+async def check_prediction_result(game_number: int, second_group: str):
     """Vérifie les résultats selon la séquence ✅0️⃣, ✅1️⃣, ✅2️⃣, ✅3️⃣ ou ❌."""
     # 1. Vérification pour le jeu actuel (Cible N)
     if game_number in pending_predictions:
         pred = pending_predictions[game_number]
         if pred.get('rattrapage', 0) == 0:
             target_suit = pred['suit']
-            if has_suit_in_group(first_group, target_suit):
+            # MODIFIÉ : Utilisation du deuxième groupe au lieu du premier
+            if has_suit_in_group(second_group, target_suit):
                 await update_prediction_status(game_number, '✅0️⃣')
                 return
             else:
@@ -308,7 +311,8 @@ async def check_prediction_result(game_number: int, first_group: str):
             target_suit = pred['suit']
             rattrapage_actuel = pred['rattrapage']
             
-            if has_suit_in_group(first_group, target_suit):
+            # MODIFIÉ : Utilisation du deuxième groupe au lieu du premier
+            if has_suit_in_group(second_group, target_suit):
                 # Trouvé ! On met à jour le statut avec le bon numéro de rattrapage
                 await update_prediction_status(original_game, f'✅{rattrapage_actuel}️⃣')
                 # On supprime aussi l'entrée de rattrapage si elle est différente de l'originale
@@ -416,11 +420,13 @@ async def process_finalized_message(message_text: str, chat_id: int):
         processed_messages.add(message_hash)
 
         groups = extract_parentheses_groups(message_text)
-        if len(groups) < 1: return
-        first_group = groups[0]
+        # MODIFIÉ : Vérification qu'il y a au moins 2 groupes et utilisation du deuxième
+        if len(groups) < 2: 
+            return
+        second_group = groups[1]  # MODIFIÉ : Index 1 au lieu de 0
 
         # Vérification des résultats
-        await check_prediction_result(game_number, first_group)
+        await check_prediction_result(game_number, second_group)
         # Envoi des files d'attente
         await check_and_send_queued_predictions(game_number)
 
